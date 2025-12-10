@@ -1,7 +1,7 @@
 import sql from 'mssql';
 
 // dbConfig.js
-export const dbConfig = {
+export const config = {
     user: "sa",
     password: "admin@1235",
     server: "localhost" || "13.232.178.222",   // or 13.232.178.222 if remote
@@ -23,3 +23,4 @@ try {
 }
 
 export default poolPromise;
+
