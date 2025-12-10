@@ -1,0 +1,598 @@
+import { useState, useEffect, useMemo } from 'react';
+import { Link } from "react-router-dom";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Badge } from './ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Separator } from './ui/separator';
+import {
+  ShoppingCart,
+  Plus,
+  Minus,
+  Trash2,
+  Search,
+  Filter,
+  Package,
+  Tag,
+  IndianRupee,
+  CheckCircle,
+  AlertCircle,
+  Package2
+} from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from './ui/alert';
+import axios from 'axios';
+
+// API configuration
+const url = "/api/sap/opu/odata/sap/ZDMS_ORDER_REDESIGN_SRV/ProductsListSet?$filter=Kunnr eq '104464' and Werks eq '1101' and Vtweg eq 'O3' and Bukrs eq '1100'";
+const username = "dev01";
+const password = "Kriti@12";
+const config = {
+  method: "get",
+  url: url,
+  auth: {
+    username: username,
+    password: password,
+  },
+  headers: {
+    "Accept": "application/json",
+    "Content-Type": "application/json; charset=utf-8",
+  },
+};
+
+export function CreateOrder() {
+  const [dealerCategory, setDealerCategory] = useState('');
+  const [subCategory, setSubCategory] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [cart, setCart] = useState([]);
+  const [orderNotes, setOrderNotes] = useState('');
+  const [totalvolume, setTotalVolume] = useState(0);
+  const [skuData, setSkuData] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const DENSITY = 1;
+
+  // Fetch SKU data from API via Vite proxy
+  useEffect(() => {
+    const fetchSkuData = async () => {
+      try {
+        setLoading(true);
+        const response = await axios(config);
+        const apiSkus = response.data.d.results;
+
+        // Transform API data to match skuData structure
+        const transformedData = apiSkus.reduce((acc, item) => {
+          const category = item.Spart === 'S1' ? 'SFO' : 'UNKNOWN'; // Map Spart to category
+          const subCategory = item.Mvgr1 === 'SUN' ? 'CP' : 'BP'; // Map Mvgr1 to subCategory
+          const skuItem = {
+            sku: item.Matnr || `SKU-${Math.random().toString(36).slice(2, 9)}`, // Fallback SKU
+            name: item.Maktx || 'Unknown Product',
+            unit: item.Meins || 'No unit Found',
+            price: 1000, // Fallback: Replace with actual price if available
+            mrp: 1100, // Fallback: Replace with actual MRP if available
+            stock: 100, // Fallback: Replace with actual stock if available
+            category: category,
+            volume: parseFloat(item.Ntgew) / 1000 || 0.001 // Convert KG to MT, fallback to 0.001
+          };
+
+          if (!acc[category]) {
+            acc[category] = {};
+          }
+          if (!acc[category][subCategory]) {
+            acc[category][subCategory] = [];
+          }
+          acc[category][subCategory].push(skuItem);
+          return acc;
+        }, {});
+
+        setSkuData(transformedData);
+        setLoading(false);
+      } catch (err) {
+        console.error('Error fetching SKU data:', err);
+        let errorMessage = 'Failed to load SKU data. Please try again later.';
+        if (err.code === 'ERR_NETWORK') {
+          errorMessage = 'Network error: Unable to connect to the API. Please check if the API server is accessible.';
+        } else if (err.response?.status === 401) {
+          errorMessage = 'Authentication failed: Invalid username or password.';
+        } else if (err.response?.status) {
+          errorMessage = `API error: ${err.response.status} - ${err.response.statusText}`;
+        }
+        setError(errorMessage);
+        setLoading(false);
+      }
+    };
+
+    fetchSkuData();
+  }, []);
+
+  // Get available SKUs based on selected category and subcategory
+  const availableSKUs = useMemo(() => {
+    if (!dealerCategory || !subCategory) return [];
+    return skuData[dealerCategory]?.[subCategory] || [];
+  }, [dealerCategory, subCategory, skuData]);
+
+  // Filter SKUs based on search term
+  const filteredSKUs = useMemo(() => {
+    if (!searchTerm) return availableSKUs;
+    return availableSKUs.filter(sku =>
+      sku.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      sku.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      sku.category.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [availableSKUs, searchTerm]);
+
+  // Cart calculations
+  const cartTotal = useMemo(() =>
+    cart.reduce((sum, item) => sum + item.total, 0),
+    [cart]
+  );
+  const cartItems = useMemo(() =>
+    cart.reduce((sum, item) => sum + item.quantity, 0),
+    [cart]
+  );
+  const totalVolume = useMemo(() =>
+    cart.reduce((sum, item) => sum + (item.totalVolume || 0), 0),
+    [cart]
+  );
+
+  // Update totalvolume state
+  useEffect(() => {
+    setTotalVolume(totalVolume);
+  }, [totalVolume]);
+
+  const addToCart = (sku, quantity = 1) => {
+    setCart(prevCart => {
+      const existingItem = prevCart.find(item => item.sku === sku.sku);
+      if (existingItem) {
+        return prevCart.map(item =>
+          item.sku === sku.sku
+            ? {
+              ...item,
+              quantity: item.quantity + quantity,
+              total: (item.quantity + quantity) * item.price,
+              totalTons: (item.quantity + quantity) * sku.volume * DENSITY,
+              totalVolume: (item.quantity + quantity) * sku.volume
+            }
+            : item
+        );
+      } else {
+        return [...prevCart, {
+          sku: sku.sku,
+          name: sku.name,
+          price: sku.price,
+          mrp: sku.mrp,
+          quantity,
+          volume: sku.volume,
+          total: sku.price * quantity,
+          totalTons: sku.volume * quantity * DENSITY,
+          totalVolume: sku.volume * quantity
+        }];
+      }
+    });
+  };
+
+  const updateCartQuantity = (sku, newQuantity) => {
+    if (newQuantity <= 0) {
+      removeFromCart(sku);
+      return;
+    }
+    setCart(prevCart =>
+      prevCart.map(item =>
+        item.sku === sku
+          ? {
+            ...item,
+            quantity: newQuantity,
+            total: newQuantity * item.price,
+            totalTons: newQuantity * item.volume * DENSITY,
+            totalVolume: newQuantity * item.volume
+          }
+          : item
+      )
+    );
+  };
+
+  const removeFromCart = (sku) => {
+    setCart(prevCart => prevCart.filter(item => item.sku !== sku));
+  };
+
+  const clearCart = () => {
+    setCart([]);
+    setTotalVolume(0);
+  };
+
+  const submitOrder = () => {
+    if (cart.length === 0) return;
+
+    console.log('Order submitted:', {
+      dealerCategory,
+      subCategory,
+      items: cart,
+      total: cartTotal,
+      totalVolume,
+      notes: orderNotes,
+      timestamp: new Date().toISOString()
+    });
+
+    setCart([]);
+    setOrderNotes('');
+    setTotalVolume(0);
+    alert("Order submitted successfully!");
+  };
+
+  const getStockStatus = (stock) => {
+    if (stock > 100) return { status: 'In Stock', variant: 'default' };
+    if (stock > 50) return { status: 'Low Stock', variant: 'secondary' };
+    if (stock > 0) return { status: 'Very Low', variant: 'destructive' };
+    return { status: 'Out of Stock', variant: 'outline' };
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      {loading && (
+        <div className="text-center py-8">
+          <p className="text-muted-foreground">Loading SKU data...</p>
+        </div>
+      )}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {!loading && !error && (
+        <>
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-3xl font-bold flex items-center">
+                <ShoppingCart className="w-8 h-8 mr-3" />
+                Contract Booking
+              </h1>
+              <p className="text-muted-foreground">Select your category and browse available SKUs</p>
+            </div>
+          </div>
+
+          {/* Category Selection */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Tag className="w-5 h-5 mr-2" />
+                Product Category & Subcategory
+              </CardTitle>
+              <CardDescription>Select your Product category and product subcategory</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Product Category</label>
+                  <Select value={dealerCategory} onValueChange={(value) => {
+                    setDealerCategory(value);
+                    setSubCategory('');
+                  }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Product category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.keys(skuData).map(category => (
+                        <SelectItem key={category} value={category}>{category}</SelectItem>
+                      ))}
+                      {/* <SelectItem>SBO</SelectItem>
+                      <SelectItem>SFO</SelectItem>
+                      <SelectItem>MUS</SelectItem>
+                      <SelectItem>SBO</SelectItem> */}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Product Subcategory</label>
+                  <Select value={subCategory} onValueChange={setSubCategory} >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select subcategory" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {dealerCategory && Object.keys(skuData[dealerCategory] || {}).map(subCat => (
+                        <SelectItem key={subCat} value={subCat}>{subCat}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Location</label>
+                  <Select>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Dewas">Dewas Plant</SelectItem>
+                      <SelectItem value="Jabalpur">Depot</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {dealerCategory === "02" && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Type</label>
+                    <Select>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Ready">Ready</SelectItem>
+                        <SelectItem value="Forward">Forward</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Shopping Cart Summary */}
+          {cart.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle className="flex items-center">
+                    <ShoppingCart className="w-5 h-5 mr-2" />
+                    Shopping Cart ({cartItems} items)
+                  </CardTitle>
+                  <div className="flex items-center space-x-2">
+                    <span className="font-medium">Total: ₹{cartTotal.toLocaleString()}</span>
+                    <Button variant="outline" size="sm" onClick={clearCart}>
+                      Clear Cart
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {cart.map((item) => (
+                    <div key={item.sku} className="flex items-center justify-between p-2 border rounded">
+                      <div className="flex-1">
+                        <span className="font-medium text-sm">{item.name}</span>
+                        <div className="text-xs text-muted-foreground">{item.sku}</div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateCartQuantity(item.sku, item.quantity - 1)}
+                        >
+                          <Minus className="w-3 h-3" />
+                        </Button>
+                        <Input
+                          type="number"
+                          value={item.quantity}
+                          min={0}
+                          className="w-20 text-center text-sm"
+                          onChange={(e) => updateCartQuantity(item.sku, Number(e.target.value))}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateCartQuantity(item.sku, item.quantity + 1)}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                        <span className="w-20 text-right text-sm">₹{item.total.toLocaleString()}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeFromCart(item.sku)}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* SKU Listing */}
+          {dealerCategory && subCategory && (
+            <Card>
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
+                  <div>
+                    <CardTitle className="flex items-center">
+                      <Package className="w-5 h-5 mr-2" />
+                      Available SKUs - {dealerCategory} / {subCategory}
+                    </CardTitle>
+                    <CardDescription>
+                      Browse and add products to your order
+                    </CardDescription>
+                  </div>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Search SKUs..."
+                      className="pl-10 w-80"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="border rounded-lg overflow-x-auto">
+                  <Table size="2">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>SKU Code</TableHead>
+                        <TableHead>Product Name</TableHead>
+                        {/* <TableHead>Category</TableHead> */}
+                        <TableHead>Unit</TableHead>
+                        <TableHead>Price (₹)</TableHead>
+                        <TableHead>Quantity</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredSKUs.map((sku) => {
+                        const stockInfo = getStockStatus(sku.stock);
+                        const cartItem = cart.find(item => item.sku === sku.sku);
+
+                        return (
+                          <TableRow key={sku.sku}>
+                            <TableCell className="font-medium">{sku.sku}</TableCell>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">{sku.name}</div>
+                              </div>
+                            </TableCell>
+
+                            {/* <TableCell>{sku.category}</TableCell> */}
+                            <TableCell>{sku.unit}</TableCell>
+                            <TableCell>₹{sku.price.toLocaleString()}</TableCell>
+                            <TableCell className="w-40 text-center">
+                              {cartItem ? (
+                                <div className="flex items-center justify-center gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => updateCartQuantity(sku.sku, cartItem.quantity - 1)}
+                                  >
+                                    <Minus className="w-3 h-3" />
+                                  </Button>
+                                  <Input
+                                    type="number"
+                                    value={cartItem.quantity}
+                                    min={1}
+                                    className="w-16 text-center text-sm"
+                                    onChange={(e) => updateCartQuantity(sku.sku, Number(e.target.value))}
+                                  />
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => updateCartQuantity(sku.sku, cartItem.quantity + 1)}
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex justify-center">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => addToCart(sku)}
+                                    disabled={sku.stock === 0}
+                                  >
+                                    <Plus className="w-4 h-4 mr-1" />
+                                    Add
+                                  </Button>
+                                </div>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+                {filteredSKUs.length === 0 && (
+                  <div className="text-center py-8">
+                    <Package className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">
+                      {!dealerCategory || !subCategory
+                        ? 'Please select Product category and subcategory to view SKUs'
+                        : 'No SKUs found matching your search criteria'
+                      }
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Order Summary and Submission */}
+          {cart.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Order Summary <span className='text-red-200'>TODO: SKU wise summary</span></CardTitle>
+                <CardDescription>Review your order before submission</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {cart.map((item) => (
+                    <div key={item.sku} className="flex items-center justify-between p-2 border rounded">
+                      <div className="flex-1">
+                        <span className="font-medium text-sm">{item.name}</span>
+                        <div className="text-xs text-muted-foreground">{item.sku}</div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateCartQuantity(item.sku, item.quantity - 1)}
+                        >
+                          <Minus className="w-3 h-3" />
+                        </Button>
+                        <Input
+                          type="number"
+                          value={item.quantity}
+                          min={0}
+                          className="w-20 text-center text-sm"
+                          onChange={(e) => updateCartQuantity(item.sku, Number(e.target.value))}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateCartQuantity(item.sku, item.quantity + 1)}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                        <span className="w-20 text-right text-sm">₹{item.total.toLocaleString()}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeFromCart(item.sku)}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between mt-2">
+                        <span>Total Items:</span>
+                        <span className="font-medium">{cartItems}</span>
+                      </div>
+                      <div className="flex justify-between mt-2">
+                        <span>Unique SKUs:</span>
+                        <span className="font-medium">{cart.length}</span>
+                      </div>
+                      <Separator />
+                      <div className="flex justify-between">
+                        <span className="font-medium">Total Amount:</span>
+                        <span className="font-bold">₹{cartTotal.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="font-medium">Total Volume:</span>
+                        <span className="font-bold">{totalVolume.toFixed(3)} MT</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex lg:justify-end lg:gap-2 space-x-2">
+                  <Button variant="outline" onClick={clearCart}>
+                    Clear Order
+                  </Button>
+                  <Button onClick={submitOrder} className="min-w-32">
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    Submit Order
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
