@@ -25,18 +25,16 @@ Repository Structure
 ├── backend/                 # Node.js API server
 │   ├── src/
 │   ├── package.json
-│ 
 │
-├── client/                  # React client-side code
+├── client/                  # React client-side application
 │   ├── src/
 │   ├── public/
 │   └── package.json
 │
-├── build/                   # Production React build (npm run build output)
+├── build/                   # Production React build (output of npm run build)
 │
-└── database/                # SQL scripts, table definitions
+└── database/                # SQL scripts & schema
     └── schema.sql
-
 1. Database Setup (SQL Server 2022)
 Create Database & Tables
 
