@@ -19,22 +19,7 @@ Technology Stack
 | React      | **18.3.1**                                            |
 | SQL Server | **Microsoft SQL Server 2022 (RTM-GDR)** (16.0.1110.1) |
 
-Repository Structure
-/ProjectRoot
-│
-├── backend/                 # Node.js API server
-│   ├── src/
-│   ├── package.json
-│
-├── client/                  # React client-side application
-│   ├── src/
-│   ├── public/
-│   └── package.json
-│
-├── build/                   # Production React build (output of npm run build)
-│
-└── database/                # SQL scripts & schema
-    └── schema.sql
+
 1. Database Setup (SQL Server 2022)
 Create Database & Tables
 
